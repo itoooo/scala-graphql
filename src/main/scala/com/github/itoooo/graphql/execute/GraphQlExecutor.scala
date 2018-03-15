@@ -95,7 +95,7 @@ object GraphQlExecutor {
 
       selection match {
         case f: ast.Field =>
-          val responseKey = f.name // todo: support alias
+          val responseKey = if (f.alias.isDefined) f.alias.get else f.name
           val groupForResponseKey = groupedFields.getOrElse(responseKey, List[ast.Field]())
           groupedFields = groupedFields + (responseKey -> (groupForResponseKey :+ f))
         case _: Any =>
