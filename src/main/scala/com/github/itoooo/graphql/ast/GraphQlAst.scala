@@ -39,10 +39,10 @@ case class IntValue(v: Int) extends Value
 case class FloatValue(v: Float) extends Value
 case class StringValue(v: String) extends Value
 case class BooleanValue(v: Boolean) extends Value
-case class NullValue(v: Unit) extends Value
 case class EnumValue(v: String) extends Value
-case class ListValue(v: List[Value]) extends Value
-case class ObjectValue(v: List[ObjectField]) extends Value
+case class ListValue(v: Seq[Value]) extends Value
+case class ObjectValue(v: Seq[ObjectField]) extends Value
+case class NullValue(v: Unit = null) extends Value
 
 trait Type extends GraphQlAst
 case class NamedType(name: String) extends Type

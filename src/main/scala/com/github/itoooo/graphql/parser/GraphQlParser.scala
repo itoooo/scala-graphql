@@ -4,7 +4,7 @@ import scala.util.parsing.combinator._
 import scala.util.parsing.input._
 import com.github.itoooo.graphql.ast._
 
-sealed trait Token
+sealed trait Token extends Positional
 
 case class NAME(value: String) extends Token
 case class Q_NAME(value: String) extends Token
@@ -33,40 +33,47 @@ case object FALSE extends Token
 case object NULL extends Token
 
 trait CompilationError extends Exception {
+  def location: Location
   def msg: String
 }
-case class LexerError(msg: String) extends CompilationError
+
+case class Location(line: Int, column: Int) {
+  override def toString = s"$line:$column"
+}
+
+case class LexerError(location: Location, msg: String) extends CompilationError
+case class ParserError(location: Location, msg: String) extends CompilationError
 
 object GraphQlLexer extends RegexParsers {
   override def skipWhitespace = true
   override val whiteSpace = "[ \t\r\n\f]+".r
 
-  def name: Parser[NAME] = {
+  def name: Parser[NAME] = positioned {
     "[a-zA-Z_][a-zA-Z0-9_]*".r ^^ { str => NAME(str) }
   }
 
-  def qName: Parser[Q_NAME] = {
+  def qName: Parser[Q_NAME] = positioned {
     """'[^']*'""".r ^^ { str =>
       val content = str.substring(1, str.length - 1)
       Q_NAME(content)
     }
   }
 
-  def stringValue: Parser[STRING_VALUE] = {
+  def stringValue: Parser[STRING_VALUE] = positioned {
     """"[^"]*"""".r ^^ { str =>
       val content = str.substring(1, str.length - 1)
       STRING_VALUE(content)
     }
   }
 
-  def intValue: Parser[INT_VALUE] = {
+  def intValue: Parser[INT_VALUE] = positioned {
     "-?[0-9]+".r ^^ { str =>
       val content = str.toInt
       INT_VALUE(content)
     }
   }
 
-  def floatValue: Parser[FLOAT_VALUE] = {
+  def floatValue: Parser[FLOAT_VALUE] = positioned {
     "-?[0-9]+\\.[0-9]+".r ^^ { str =>
       val content = str.toFloat
       FLOAT_VALUE(content)
@@ -104,7 +111,7 @@ object GraphQlLexer extends RegexParsers {
 
   def apply(code: String): Either[LexerError, List[Token]] = {
     parse(tokens, code) match {
-      case NoSuccess(msg, next) => Left(LexerError(msg))
+      case NoSuccess(msg, next) => Left(LexerError(Location(next.pos.line, next.pos.column), msg))
       case Success(result, next) => Right(result)
     }
   }
@@ -116,8 +123,6 @@ class TokenReader(tokens: Seq[Token]) extends Reader[Token] {
   override def pos: Position = NoPosition
   override def rest: Reader[Token] = new TokenReader(tokens.tail)
 }
-
-case class ParserError(msg: String) extends CompilationError
 
 object GraphQlParser extends Parsers {
   override type Elem = Token
@@ -297,7 +302,7 @@ object GraphQlParser extends Parsers {
   def apply(tokens: Seq[Token]): Either[ParserError, Document] = {
     val reader = new TokenReader(tokens)
     document(reader) match {
-      case NoSuccess(msg, next) => Left(ParserError(msg))
+      case NoSuccess(msg, next) => Left(ParserError(Location(next.pos.line, next.pos.column), msg))
       case Success(result, next) => Right(result)
     }
   }

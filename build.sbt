@@ -5,7 +5,7 @@ lazy val root = (project in file(".")).
     inThisBuild(List(
       organization := "com.github.itoooo",
       scalaVersion := "2.12.3",
-      version      := "0.1.0-SNAPSHOT"
+      version      := "0.2.0-SNAPSHOT"
     )),
     name := "scala-graphql",
     libraryDependencies += scalaTest % Test,

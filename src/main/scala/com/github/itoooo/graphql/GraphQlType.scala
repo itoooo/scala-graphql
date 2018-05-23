@@ -1,10 +1,16 @@
 package com.github.itoooo.graphql
 
+import com.github.itoooo.graphql.ast.VariableDefinition
+
+import scala.collection.mutable
+import scala.collection.immutable
+
 trait GraphQlType {
 }
 
 trait GraphQlObjectType extends GraphQlType with ObjectResolvable {
   def getFieldType(o: Object, fieldName: String): GraphQlType
+  def getArgDefinitions(o: Object, fieldName: String): List[VariableDefinition] = Nil
 }
 
 class GraphQlListType(innerType: GraphQlType) extends GraphQlType {
@@ -14,7 +20,10 @@ class GraphQlListType(innerType: GraphQlType) extends GraphQlType {
 
   def get(o: Object): Seq[Object] = {
     o match {
-      case o: Seq[Object] => o
+      case seq: immutable.Seq[Object] => seq
+      case set: immutable.Set[Object] => set.toSeq
+      case seq: mutable.Seq[Object] => seq
+      case set: mutable.Set[Object] => set.toSeq
     }
   }
 }

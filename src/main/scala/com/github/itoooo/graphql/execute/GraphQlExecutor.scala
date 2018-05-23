@@ -1,6 +1,7 @@
 package com.github.itoooo.graphql.execute
 
 import com.github.itoooo.graphql._
+import com.github.itoooo.graphql.ast.{FragmentDefinition, OperationDefinition}
 
 case class GraphQlQueryError(msg: String) extends Exception
 
@@ -9,8 +10,12 @@ case class Variable(name: String, value: Object)
 trait SchemaType
 
 object GraphQlExecutor {
+  // for refer in fragment
+  var currentDocument: ast.Document = _
+
   def executeRequest(schema: Schema, document: ast.Document, operationName: Option[String],
-                     variableValues: List[Variable], initialValue: ObjectResolvable): Map[String, Object] = {
+                     variableValues: Map[String, ast.Value], initialValue: ObjectResolvable): Map[String, Object] = {
+    currentDocument = document
     val operation = getOperation(document, operationName)
     val coercedVariablValues = coerceVariableValues(schema, operation, variableValues)
     if (operation.operationType == "query") {
@@ -23,9 +28,11 @@ object GraphQlExecutor {
   }
 
   def getOperation(document: ast.Document, operationName: Option[String]): ast.OperationDefinition = {
-    val operations = document.definitions.collect {
-      case op: ast.OperationDefinition => op
+    val operations = document.definitions flatMap {
+      case e: OperationDefinition => Some(e)
+      case _ => None
     }
+
     if (operationName.isEmpty) {
       if (operations.length == 1) {
         operations.head
@@ -44,29 +51,18 @@ object GraphQlExecutor {
     }
   }
 
-  def coerceVariableValues(schema: Schema, operation: ast.OperationDefinition, variableValues: List[Variable]): Map[String, Object] = {
-    val variableDefs = operation.variableDefinitions
-    variableDefs.foldLeft(Map.empty[String, Object]) {(acc, variableDef) =>
-      val value = variableValues.collectFirst {case variableValue => variableValue.name == variableDef.variable}
-      if (value.isEmpty) {
-        if (variableDef.defaultValue.isDefined) {
-          acc + (variableDef.variable -> variableDef.defaultValue)
-        } else {
-          acc
-        }
-      } else {
-        // todo: handle coercing
-        acc + (variableDef.variable -> value)
-      }
-    }
+  def coerceVariableValues(schema: Schema, operation: ast.OperationDefinition,
+                           variableValues: Map[String, ast.Value]): Map[String, ast.Value] = {
+    // todo: handle coercing
+    variableValues
   }
 
-  def executeQuery(schema: Schema, query: ast.OperationDefinition, variableValues: Map[String, Object],
+  def executeQuery(schema: Schema, query: ast.OperationDefinition, variableValues: Map[String, ast.Value],
                    initialValue: Object): Map[String, Object] = {
     executeSelectionSet(query.selectionSet, schema.queryType, initialValue, variableValues)
   }
 
-  def executeMutation(schema: Schema, mutation: ast.OperationDefinition, variableValues: Map[String, Object],
+  def executeMutation(schema: Schema, mutation: ast.OperationDefinition, variableValues: Map[String, ast.Value],
                       initialValue: Object) = {
     executeSelectionSet(mutation.selectionSet, schema.mutationType, initialValue, variableValues)
   }
@@ -74,8 +70,8 @@ object GraphQlExecutor {
   def executeSelectionSet(selectionSet: List[ast.Selection],
                           objectType: GraphQlObjectType,
                           objectValue: Object,
-                          variableValues: Map[String, Object]): Map[String, Object] = {
-    val groupedFieldSet = collectFields(selectionSet, variableValues, Nil)
+                          variableValues: Map[String, ast.Value]): Map[String, Object] = {
+    val groupedFieldSet = collectFields(objectType, selectionSet, variableValues)
     var resultMap = Map.empty[String, Object]
     groupedFieldSet.foreach({case (responseKey, fields) =>
       val fieldName = fields.head.name
@@ -86,9 +82,10 @@ object GraphQlExecutor {
     resultMap
   }
 
-  def collectFields(selectionSet: List[ast.Selection],
+  def collectFields(objectType: GraphQlObjectType,
+                    selectionSet: List[ast.Selection],
                     variableValues: Map[String, Object],
-                    visitedFragments: List[ast.FragmentDefinition]): Map[String, List[ast.Field]] = {
+                    visitedFragments: List[String] = List()): Map[String, List[ast.Field]] = {
     var groupedFields = Map.empty[String, List[ast.Field]]
     selectionSet.foreach {selection =>
       // todo: impl skip and include directive
@@ -98,6 +95,29 @@ object GraphQlExecutor {
           val responseKey = if (f.alias.isDefined) f.alias.get else f.name
           val groupForResponseKey = groupedFields.getOrElse(responseKey, List[ast.Field]())
           groupedFields = groupedFields + (responseKey -> (groupForResponseKey :+ f))
+        case f: ast.FragmentSpread =>
+          if (!visitedFragments.contains(f.name)) {
+            // find Fragment in the current document
+            val fragment = currentDocument.definitions.flatMap {
+              case e: FragmentDefinition => Some(e)
+              case _ => None
+            }.find(e => e.name == f.name)
+
+            if (fragment.isDefined) {
+              // todo: impl DoesFragmentTypeApply
+
+              val fragmentSelectionSet = fragment.get.selections
+              val fragmentGroupedFieldSet = collectFields(objectType,
+                fragmentSelectionSet, variableValues, visitedFragments :+ f.name)
+              for ((responseKey, fragmentGroup) <- fragmentGroupedFieldSet) {
+                var groupForResponseKey = groupedFields.getOrElse(responseKey, List[ast.Field]())
+                fragmentGroup foreach { e =>
+                  groupForResponseKey = groupForResponseKey :+ e
+                }
+                groupedFields = groupedFields + (responseKey -> groupForResponseKey)
+              }
+            }
+          }
         case _: Any =>
       }
 
@@ -110,7 +130,7 @@ object GraphQlExecutor {
                    objectValue: Object,
                    fields: List[ast.Field],
                    fieldType: GraphQlType,
-                   variableValues: Map[String, Object]): Object = {
+                   variableValues: Map[String, ast.Value]): Object = {
     val field = fields.head
     val argumentValues = coerceArgumentValues(field, variableValues)
     val resolvedValue = resolveFieldValue(objectType, objectValue, field.name, argumentValues)
@@ -118,29 +138,23 @@ object GraphQlExecutor {
   }
 
   def coerceArgumentValues(field: ast.Field,
-                           variableValues: Map[String, Object]): Map[String, ast.Value] = {
+                           variableValues: Map[String, ast.Value]): Map[String, ast.Value] = {
     var coercedValues = Map.empty[String, ast.Value]
     val argumentValues = field.arguments
-    argumentValues foreach { v =>
-      coercedValues = coercedValues + (v.name -> v.value)}
-    coercedValues
-    /* todo: variable coerce
-    val fieldName = field.name
-    val argumentDefinitions = objectType.getArgDefs(fieldName)
-    argumentDefinitions.foreach {argumentDefinition =>
-      val argumentName = argumentDefinition.name
-      val argumentType = argumentDefinition.argType
-      val value = argumentValues.find(argument => argument.name == argumentName)
-      if (value.isDefined) {
-        val variableName = value.get.name
-        val variableValue = variableValues.get(variableName)
-        if (variableValue.isDefined) {
-          coercedValues = coercedValues + (variableName -> variableValue.get)
-        }
+    argumentValues foreach { argument =>
+      argument.value match {
+        case variable: ast.Variable =>
+          val variableValue = variableValues.get(variable.v)
+          if (variableValue.isDefined) {
+            coercedValues = coercedValues + (argument.name -> variableValue.get)
+          } else {
+            throw GraphQlQueryError(s"variable '${variable.v}' not found")
+          }
+        case _ =>
+          coercedValues = coercedValues + (argument.name -> argument.value)
       }
     }
     coercedValues
-    */
   }
 
   def resolveFieldValue(objectType: ObjectResolvable,
@@ -153,7 +167,7 @@ object GraphQlExecutor {
   def completeValue(fieldType: GraphQlType,
                     fields: List[ast.Field],
                     result: Object,
-                    variableValues: Map[String, Object]): Object = {
+                    variableValues: Map[String, ast.Value]): Object = {
     // todo: handle non-null type
 
     if (result == null || result == None) {
