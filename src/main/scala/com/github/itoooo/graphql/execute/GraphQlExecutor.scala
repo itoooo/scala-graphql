@@ -12,10 +12,12 @@ trait SchemaType
 object GraphQlExecutor {
   // for refer in fragment
   var currentDocument: ast.Document = _
+  var execSchema: Schema = _
 
   def executeRequest(schema: Schema, document: ast.Document, operationName: Option[String],
                      variableValues: Map[String, ast.Value], initialValue: ObjectResolvable): Map[String, Object] = {
     currentDocument = document
+    execSchema = schema
     val operation = getOperation(document, operationName)
     val coercedVariablValues = coerceVariableValues(schema, operation, variableValues)
     if (operation.operationType == "query") {
@@ -71,7 +73,7 @@ object GraphQlExecutor {
                           objectType: GraphQlObjectType,
                           objectValue: Object,
                           variableValues: Map[String, ast.Value]): Map[String, Object] = {
-    val groupedFieldSet = collectFields(objectType, selectionSet, variableValues)
+    val groupedFieldSet = collectFields(objectType, objectValue, selectionSet, variableValues)
     var resultMap = Map.empty[String, Object]
     groupedFieldSet.foreach({case (responseKey, fields) =>
       val fieldName = fields.head.name
@@ -82,7 +84,19 @@ object GraphQlExecutor {
     resultMap
   }
 
+  def handleDirective(directive: ast.Directive, objectValue: Object): Boolean = {
+    val directiveDefs = execSchema.directiveDefs
+    val filterDirectiveDefs = directiveDefs.collect { case x: GraphQlFilterDirectiveResolver => x }
+    filterDirectiveDefs.find(_.name == directive.name) match {
+      case Some(directiveResolver: GraphQlFilterDirectiveResolver) =>
+        directiveResolver.resolveDirective(objectValue, directive.arguments)
+      case None => throw GraphQlQueryError(s"undefined directive ${directive.name}")
+    }
+  }
+
+
   def collectFields(objectType: GraphQlObjectType,
+                    objectValue: Object,
                     selectionSet: List[ast.Selection],
                     variableValues: Map[String, Object],
                     visitedFragments: List[String] = List()): Map[String, List[ast.Field]] = {
@@ -92,9 +106,17 @@ object GraphQlExecutor {
 
       selection match {
         case f: ast.Field =>
-          val responseKey = if (f.alias.isDefined) f.alias.get else f.name
-          val groupForResponseKey = groupedFields.getOrElse(responseKey, List[ast.Field]())
-          groupedFields = groupedFields + (responseKey -> (groupForResponseKey :+ f))
+          // if directives has specified, evaluate all directives and
+          // include a field when all result are 'true'.
+          var include = true
+          if (f.directives.nonEmpty) {
+            include = f.directives.forall(handleDirective(_, objectValue))
+          }
+          if (include) {
+            val responseKey = if (f.alias.isDefined) f.alias.get else f.name
+            val groupForResponseKey = groupedFields.getOrElse(responseKey, List[ast.Field]())
+            groupedFields = groupedFields + (responseKey -> (groupForResponseKey :+ f))
+          }
         case f: ast.FragmentSpread =>
           if (!visitedFragments.contains(f.name)) {
             // find Fragment in the current document
@@ -107,7 +129,7 @@ object GraphQlExecutor {
               // todo: impl DoesFragmentTypeApply
 
               val fragmentSelectionSet = fragment.get.selections
-              val fragmentGroupedFieldSet = collectFields(objectType,
+              val fragmentGroupedFieldSet = collectFields(objectType, objectValue,
                 fragmentSelectionSet, variableValues, visitedFragments :+ f.name)
               for ((responseKey, fragmentGroup) <- fragmentGroupedFieldSet) {
                 var groupForResponseKey = groupedFields.getOrElse(responseKey, List[ast.Field]())
