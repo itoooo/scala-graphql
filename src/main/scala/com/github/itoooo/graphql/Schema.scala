@@ -1,3 +1,5 @@
 package com.github.itoooo.graphql
 
-case class Schema(queryType: GraphQlObjectType, mutationType: GraphQlObjectType)
+case class Schema(queryType: GraphQlObjectType,
+                  mutationType: GraphQlObjectType,
+                  directiveDefs: Set[GraphqlDirectiveResolver])

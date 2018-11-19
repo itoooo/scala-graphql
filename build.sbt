@@ -1,14 +1,11 @@
-import Dependencies._
+ThisBuild / organization := "com.github.itoooo"
+ThisBuild / scalaVersion := "2.12.3"
+ThisBuild / version := "0.3.0-SNAPSHOT"
 
 lazy val root = (project in file(".")).
   settings(
-    inThisBuild(List(
-      organization := "com.github.itoooo",
-      scalaVersion := "2.12.3",
-      version      := "0.2.0-SNAPSHOT"
-    )),
     name := "scala-graphql",
-    libraryDependencies += scalaTest % Test,
+    libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.5" % Test,
     libraryDependencies += "com.typesafe.akka" % "akka-http_2.12" % "10.0.9",
     libraryDependencies += "io.spray" % "spray-json_2.12" % "1.3.4",
     libraryDependencies += "org.scala-lang.modules" % "scala-parser-combinators_2.12" % "1.0.6",
