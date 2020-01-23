@@ -26,6 +26,7 @@ case object R_BRACE extends Token
 case object PIPE extends Token
 case object QUERY extends Token
 case object MUTATION extends Token
+case object SUBSCRIPTION extends Token
 case object ON extends Token
 case object FRAGMENT extends Token
 case object TRUE extends Token
@@ -95,6 +96,7 @@ object GraphQlLexer extends RegexParsers {
   def pipe = "|" ^^ (_ => PIPE)
   def query = "query" ^^ (_ => QUERY)
   def mutation = "mutation" ^^ (_ => MUTATION)
+  def subscription = "subscription" ^^ (_ => SUBSCRIPTION)
   def on = "on" ^^ (_ => ON)
   def fragment = "fragment" ^^ (_ => FRAGMENT)
   def trueVal = "true" ^^ (_ => TRUE)
@@ -102,9 +104,9 @@ object GraphQlLexer extends RegexParsers {
   def NoneVal = "None" ^^ (_ => NULL)
 
   def tokens: Parser[List[Token]] = {
-    phrase(rep1(trueVal | falseVal | NoneVal | fragment | on | query | mutation | not | dollar | lParen | rParen |
-      dotDotDot | colon | equals | at | lSqbrace | rSqbrace | lBrace | rBrace | pipe | stringValue | intValue |
-      floatValue | qName | name)) ^^ {
+    phrase(rep1(trueVal | falseVal | NoneVal | fragment | on | query | mutation | subscription | not | dollar |
+      lParen | rParen | dotDotDot | colon | equals | at | lSqbrace | rSqbrace | lBrace | rBrace | pipe | stringValue |
+      intValue | floatValue | qName | name)) ^^ {
       tokens => tokens
     }
   }
@@ -155,7 +157,8 @@ object GraphQlParser extends Parsers {
 
   def operationType: Parser[String] = {
     QUERY ^^ {_ => "query"} |
-    MUTATION ^^ {_ => "mutation"}
+    MUTATION ^^ {_ => "mutation"} |
+    SUBSCRIPTION ^^ {_ => "subscription"}
   }
 
   def selectionSet: Parser[List[Selection]] = {

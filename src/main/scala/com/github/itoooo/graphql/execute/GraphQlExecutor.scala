@@ -1,5 +1,6 @@
 package com.github.itoooo.graphql.execute
 
+import akka.stream.scaladsl.Source
 import com.github.itoooo.graphql._
 import com.github.itoooo.graphql.ast.{FragmentDefinition, OperationDefinition}
 
@@ -10,20 +11,25 @@ case class Variable(name: String, value: Object)
 trait SchemaType
 
 object GraphQlExecutor {
+  type ExecuteResult = Map[String, Object]
+
   // for refer in fragment
   var currentDocument: ast.Document = _
   var execSchema: Schema = _
 
   def executeRequest(schema: Schema, document: ast.Document, operationName: Option[String],
-                     variableValues: Map[String, ast.Value], initialValue: ObjectResolvable): Map[String, Object] = {
+                     variableValues: Map[String, ast.Value], initialValue: ObjectResolvable):
+                     Either[ExecuteResult, Source[ExecuteResult, _]] = {
     currentDocument = document
     execSchema = schema
     val operation = getOperation(document, operationName)
     val coercedVariablValues = coerceVariableValues(schema, operation, variableValues)
     if (operation.operationType == "query") {
-      executeQuery(schema, operation, coercedVariablValues, initialValue)
+      Left(executeQuery(schema, operation, coercedVariablValues, initialValue))
     } else if (operation.operationType == "mutation") {
-      executeMutation(schema, operation, coercedVariablValues, initialValue)
+      Left(executeMutation(schema, operation, coercedVariablValues, initialValue))
+    } else if (operation.operationType == "subscription") {
+      Right(subscribe(schema, operation, coercedVariablValues, initialValue))
     } else {
       throw GraphQlQueryError("unsupported operation")
     }
@@ -65,8 +71,13 @@ object GraphQlExecutor {
   }
 
   def executeMutation(schema: Schema, mutation: ast.OperationDefinition, variableValues: Map[String, ast.Value],
-                      initialValue: Object) = {
+                      initialValue: Object): Map[String, Object] = {
     executeSelectionSet(mutation.selectionSet, schema.mutationType, initialValue, variableValues)
+  }
+
+  def subscribe(schema: Schema, subscription: ast.OperationDefinition, variableValues: Map[String, ast.Value],
+                initialValue: Object): Source[Map[String, Object], _] = {
+    createSourceEventStream(subscription, schema.subscriptionType, variableValues, initialValue)
   }
 
   def executeSelectionSet(selectionSet: List[ast.Selection],
@@ -219,5 +230,32 @@ object GraphQlExecutor {
       acc ::: field.selectionSet
     }
   }
-}
 
+  def createSourceEventStream(subscription: OperationDefinition, subscriptionType: GraphQlObjectType,
+                              variableValues: Map[String, ast.Value], initialValue: Object): Source[Map[String, Object], _] = {
+    val groupedFieldSet = collectFields(subscriptionType, initialValue, subscription.selectionSet, variableValues)
+    val fields = groupedFieldSet.head
+    val fieldName = fields._1
+    val field = fields._2.head
+    val argumentValues = coerceArgumentValues(field, variableValues)
+    val sourceStream = resolveFieldEventStream(subscriptionType, initialValue, fieldName, argumentValues)
+
+    // MapSourceToResponseEvent
+    val fieldType = subscriptionType.getFieldType(initialValue, fieldName)
+    sourceStream.map { ev =>
+      // ExecuteSubscriptionEvent
+      subscription.selectionSet.head match {
+        case f: ast.Field =>
+          val res = executeSelectionSet(f.selectionSet, fieldType.asInstanceOf[GraphQlObjectType],
+            ev, variableValues)
+          res
+        case selectionSet => throw GraphQlQueryError(s"not contained selection set in ${selectionSet}")
+      }
+    }
+  }
+
+  def resolveFieldEventStream(objectType: ObjectResolvable, rootValue: Object, fieldName: String,
+                              argumentValues: Map[String, ast.Value]): Source[Object, _] = {
+    objectType.resolve(rootValue, fieldName, argumentValues).asInstanceOf[Source[Object, _]]
+  }
+}
