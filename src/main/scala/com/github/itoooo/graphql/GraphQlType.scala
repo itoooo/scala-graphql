@@ -10,7 +10,7 @@ trait GraphQlType {
 
 trait GraphQlObjectType extends GraphQlType with ObjectResolvable {
   def getFieldType(o: Object, fieldName: String): GraphQlType
-  def getArgDefinitions(o: Object, fieldName: String): List[VariableDefinition] = Nil
+  def getArgDefinitions(o: Object, fieldName: String): Seq[VariableDefinition] = Nil
 }
 
 class GraphQlListType(innerType: GraphQlType) extends GraphQlType {

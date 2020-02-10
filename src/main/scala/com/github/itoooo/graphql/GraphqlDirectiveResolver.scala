@@ -7,5 +7,5 @@ trait GraphqlDirectiveResolver {
 }
 
 trait GraphQlFilterDirectiveResolver extends GraphqlDirectiveResolver {
-  def resolveDirective(obj: Object, args: List[Argument]): Boolean
+  def resolveDirective(obj: Object, args: Seq[Argument]): Boolean
 }

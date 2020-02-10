@@ -80,7 +80,7 @@ object GraphQlExecutor {
     createSourceEventStream(subscription, schema.subscriptionType, variableValues, initialValue)
   }
 
-  def executeSelectionSet(selectionSet: List[ast.Selection],
+  def executeSelectionSet(selectionSet: Seq[ast.Selection],
                           objectType: GraphQlObjectType,
                           objectValue: Object,
                           variableValues: Map[String, ast.Value]): Map[String, Object] = {
@@ -108,10 +108,10 @@ object GraphQlExecutor {
 
   def collectFields(objectType: GraphQlObjectType,
                     objectValue: Object,
-                    selectionSet: List[ast.Selection],
+                    selectionSet: Seq[ast.Selection],
                     variableValues: Map[String, Object],
-                    visitedFragments: List[String] = List()): Map[String, List[ast.Field]] = {
-    var groupedFields = Map.empty[String, List[ast.Field]]
+                    visitedFragments: Seq[String] = List()): Map[String, Seq[ast.Field]] = {
+    var groupedFields = Map.empty[String, Seq[ast.Field]]
     selectionSet.foreach {selection =>
       // todo: impl skip and include directive
 
@@ -161,7 +161,7 @@ object GraphQlExecutor {
 
   def executeField(objectType: GraphQlObjectType,
                    objectValue: Object,
-                   fields: List[ast.Field],
+                   fields: Seq[ast.Field],
                    fieldType: GraphQlType,
                    variableValues: Map[String, ast.Value]): Object = {
     val field = fields.head
@@ -198,7 +198,7 @@ object GraphQlExecutor {
   }
 
   def completeValue(fieldType: GraphQlType,
-                    fields: List[ast.Field],
+                    fields: Seq[ast.Field],
                     result: Object,
                     variableValues: Map[String, ast.Value]): Object = {
     // todo: handle non-null type
@@ -225,9 +225,9 @@ object GraphQlExecutor {
     }
   }
 
-  def mergeSelectionSets(fields: List[ast.Field]): List[ast.Selection] = {
-    fields.foldLeft(List.empty[ast.Selection]) { (acc, field) =>
-      acc ::: field.selectionSet
+  def mergeSelectionSets(fields: Seq[ast.Field]): Seq[ast.Selection] = {
+    fields.foldLeft(Seq.empty[ast.Selection]) { (acc, field) =>
+      acc ++ field.selectionSet
     }
   }
 
